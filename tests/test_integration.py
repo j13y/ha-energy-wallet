@@ -97,6 +97,35 @@ async def test_config_flow_detects_and_creates(hass: HomeAssistant, setup_states
     await hass.async_block_till_done()
 
 
+async def test_config_flow_g13_asks_for_three_zones(hass: HomeAssistant, setup_states, aioclient_mock) -> None:
+    aioclient_mock.get(PSE_RCE_URL, json={"value": []})
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"import_entity": IMP, "export_entity": EXP})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"seller": "tauron", "tariff_group": "G13", "dynamic": False, "dso": "tauron_dystrybucja", "phases": "3", "capacity_tier": "1200_2800", "sale_mode": "rce"},
+    )
+    assert result["step_id"] == "prices"
+    schema = {str(k): k for k in result["data_schema"].schema}
+    assert {"energy_peak2", "dist_peak2", "peak2_hours", "peak2_hours_summer", "energy_offpeak", "dist_offpeak"} <= set(schema)
+    assert schema["peak2_hours"].default() == "16-21"
+    assert schema["peak2_hours_summer"].default() == "19-22"
+
+    prices = {"energy_peak": 0.5, "energy_peak2": 0.8, "energy_offpeak": 0.4, "dist_peak": 0.26, "dist_peak2": 0.43,
+              "dist_offpeak": 0.08, "offpeak_hours": "13-16,21-7", "offpeak_hours_summer": "13-19,22-7",
+              "peak2_hours": "afternoon", "weekend_offpeak": True, "holiday_offpeak": True, "fixed_monthly": 32.6,
+              "vat": 0.23, "deposit_multiplier": 1.0, "clamp_negative_rce": True}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], prices)
+    assert result["errors"] == {"peak2_hours": "invalid_hours"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**prices, "peak2_hours": "16-21", "peak2_hours_summer": "19-22"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["tariff_group"] == "G13"
+    assert result["data"]["energy_peak2"] == 0.8
+    await hass.async_block_till_done()
+
+
 async def test_wallet_counts_money(hass: HomeAssistant, setup_states, aioclient_mock, freezer: FrozenDateTimeFactory) -> None:
     freezer.move_to("2026-10-14T10:02:00+00:00")
     today = dt_util.now().date().isoformat()
