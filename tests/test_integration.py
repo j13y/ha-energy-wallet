@@ -226,6 +226,29 @@ async def test_options_flow_resets_prices_on_tariff_change(hass: HomeAssistant, 
     assert entry.runtime_data.prices.dynamic_markup == pytest.approx(0.06)
 
 
+async def test_options_flow_g12_to_g13_takes_zone_flags_from_catalog(hass: HomeAssistant, setup_states, aioclient_mock) -> None:
+    aioclient_mock.get(PSE_RCE_URL, json={"value": []})
+    g12 = {**BASE, "tariff_group": "G12", "energy_offpeak": 0.4, "dist_offpeak": 0.1, "offpeak_hours": "13-15,22-6",
+           "weekend_offpeak": False, "holiday_offpeak": False}
+    entry = MockConfigEntry(domain=DOMAIN, data=g12, title="Energy Wallet")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"import_entity": IMP, "export_entity": EXP, "seller": "tauron", "tariff_group": "G13", "dynamic": False,
+         "dso": "tauron_dystrybucja", "phases": "3", "capacity_tier": "1200_2800", "sale_mode": "rce"},
+    )
+    keys = {str(k): k for k in result["data_schema"].schema}
+    # The G12 entry had weekends on peak; G13 counts weekends and holidays as off-peak.
+    assert keys["weekend_offpeak"].default() is True
+    assert keys["holiday_offpeak"].default() is True
+    assert keys["offpeak_hours"].default() == "13-16,21-7"
+    assert keys["peak2_hours"].default() == "16-21"
+
+
 async def test_card_registered_when_frontend_loads_later(hass: HomeAssistant, setup_states, aioclient_mock) -> None:
     from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, UrlManager
     from homeassistant.const import EVENT_COMPONENT_LOADED

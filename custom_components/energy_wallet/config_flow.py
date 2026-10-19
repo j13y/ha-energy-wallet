@@ -269,7 +269,8 @@ class EnergyWalletOptionsFlow(OptionsFlow):
                 # Prices from the previous tariff would be misleading.
                 for key in (CONF_ENERGY_PEAK, CONF_ENERGY_OFFPEAK, CONF_ENERGY_PEAK2, CONF_DYNAMIC_MARKUP,
                             CONF_DIST_PEAK, CONF_DIST_OFFPEAK, CONF_DIST_PEAK2, CONF_OFFPEAK_HOURS,
-                            CONF_OFFPEAK_HOURS_SUMMER, CONF_PEAK2_HOURS, CONF_PEAK2_HOURS_SUMMER, CONF_FIXED_MONTHLY):
+                            CONF_OFFPEAK_HOURS_SUMMER, CONF_PEAK2_HOURS, CONF_PEAK2_HOURS_SUMMER,
+                            CONF_WEEKEND_OFFPEAK, CONF_HOLIDAY_OFFPEAK, CONF_FIXED_MONTHLY):
                     self._conf.pop(key, None)
             return await self.async_step_prices()
         schema = vol.Schema({**entities_schema(current).schema, **tariff_schema(current).schema})
