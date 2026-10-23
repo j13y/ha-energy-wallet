@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
@@ -46,6 +48,8 @@ from .const import (
     DEFAULT_VAT,
     DOMAIN,
     OTHER,
+    RECALC_MONTH,
+    RECALC_SCOPES,
     SALE_MODE_RCE,
     SALE_MODES,
     TARIFF_GROUPS,
@@ -54,6 +58,8 @@ from .const import (
 )
 from .detect import grid_entities_from_energy_prefs, rank_candidates
 from .tariff import catalog_defaults, load_catalog, parse_windows
+
+_LOGGER = logging.getLogger(__name__)
 
 TARIFF_KEYS = (CONF_SELLER, CONF_TARIFF_GROUP, CONF_DYNAMIC, CONF_DSO, CONF_PHASES, CONF_CAPACITY_TIER)
 
@@ -255,12 +261,18 @@ class EnergyWalletConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class EnergyWalletOptionsFlow(OptionsFlow):
-    """Change entities, tariff and prices after setup."""
+    """Change entities, tariff and prices after setup, or recalculate past days."""
 
     def __init__(self) -> None:
         self._conf: dict[str, Any] = {}
+        self._scope = RECALC_MONTH
+        self._task: asyncio.Task[dict[str, Any]] | None = None
+        self._result: dict[str, Any] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="init", menu_options=["settings", "recalculate"])
+
+    async def async_step_settings(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         current = {**self.config_entry.data, **self.config_entry.options}
         if user_input is not None:
             tariff_changed = any(str(user_input[k]) != str(current.get(k)) for k in TARIFF_KEYS)
@@ -274,7 +286,7 @@ class EnergyWalletOptionsFlow(OptionsFlow):
                     self._conf.pop(key, None)
             return await self.async_step_prices()
         schema = vol.Schema({**entities_schema(current).schema, **tariff_schema(current).schema})
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="settings", data_schema=schema)
 
     async def async_step_prices(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         defaults, placeholders = defaults_from_catalog(self._conf)
@@ -295,3 +307,37 @@ class EnergyWalletOptionsFlow(OptionsFlow):
             errors=errors,
             description_placeholders=placeholders,
         )
+
+    async def async_step_recalculate(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="not_loaded")
+        if "recorder" not in self.hass.config.components:
+            return self.async_abort(reason="no_recorder")
+        if user_input is not None:
+            self._scope = user_input["scope"]
+            return await self.async_step_recalculating()
+        schema = vol.Schema({vol.Required("scope", default=RECALC_MONTH): _select(RECALC_SCOPES, "recalc_scope")})
+        return self.async_show_form(step_id="recalculate", data_schema=schema)
+
+    async def async_step_recalculating(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if self._task is None:
+            self._task = self.hass.async_create_task(
+                self.config_entry.runtime_data.async_recalculate(self._scope)
+            )
+        if not self._task.done():
+            return self.async_show_progress(
+                step_id="recalculating", progress_action="recalculating", progress_task=self._task
+            )
+        try:
+            self._result = self._task.result()
+        except Exception:
+            _LOGGER.exception("Recalculation failed")
+            return self.async_show_progress_done(next_step_id="recalculate_failed")
+        return self.async_show_progress_done(next_step_id="recalculate_done")
+
+    async def async_step_recalculate_done(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        placeholders = {k: str(v) for k, v in self._result.items()}
+        return self.async_abort(reason="recalculated", description_placeholders=placeholders)
+
+    async def async_step_recalculate_failed(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_abort(reason="recalculate_failed")

@@ -84,6 +84,15 @@ data:
   price: 0.2871   # zł/kWh; pomiń, aby wrócić do szacunku
 ```
 
+### Przeliczanie wstecz
+
+Integracja liczy na bieżąco od chwili instalacji. Minione dni przeliczysz w **Ustawienia → Urządzenia i usługi → Energy Wallet → Konfiguruj → Przelicz wstecz**, z zakresem **ten miesiąc**, **ten rok** albo **cała historia** (wszystko, co ma recorder, maks. 800 dni). Przeliczenie obejmuje dni do wczoraj; dzisiejszy dzień liczy się dalej na bieżąco.
+
+- **Energia** z recordera HA, z tych samych liczników co na bieżąco. Dni, które są jeszcze w szczegółowej historii stanów (`purge_keep_days`, domyślnie 10), liczone są odczyt po odczycie, tak jak na bieżąco. Starsze dni pochodzą ze statystyk godzinowych (HA trzyma je bezterminowo dla każdego licznika z `state_class`); energia godziny rozkładana jest równo na kwadranse, więc przychód ze sprzedaży wychodzi tam nieco niższy (ok. 4–5 %), bo oddawanie zwykle trafia w droższe kwadranse.
+- **Ceny** z obecnych ustawień taryfy i historycznych RCE z PSE (dostępne od 14.06.2024; wcześniejsza sprzedaż zostaje jako `unpriced_kwh`). Przeliczenie po zmianie cen, np. po wpisaniu ich z faktury, przelicza więc też minione dni. Jeśli taryfa zmieniała się w przeliczanym okresie, wynik jest przybliżony.
+- Dni policzone już na bieżąco, których nie ma w szczegółowej historii, zostają bez zmian. Ponowne przeliczenie zastępuje poprzednie, nic się nie dubluje.
+- Sensory „łącznie” zmieniają się o różnicę, więc w statystykach HA pojawia się jednorazowy skok w godzinie przeliczenia.
+
 ## Sensory
 
 | Sensor | Opis |
@@ -148,7 +157,7 @@ Zaplanowane zadanie w repozytorium robi to, co dziś trzeba robić ręcznie. Jed
 
 ### Inne
 
-- [ ] Przeliczanie wstecz dni sprzed instalacji na podstawie historii liczników z recordera HA. Wymaga stawek z historią dat (punkt 1).
+- [x] Przeliczanie wstecz dni sprzed instalacji na podstawie historii liczników z recordera HA (obecne stawki; ze stawkami z historią dat po punkcie 1).
 - [ ] Ikona w HACS przez repozytorium `home-assistant/brands`, jeśli HACS nie odczyta folderu `brand/`.
 
 ## Rozwój
@@ -165,6 +174,6 @@ Logika (`tariff.py`, `wallet.py`, `pse.py`, `detect.py`) nie zależy od Home Ass
 
 ## English
 
-Home Assistant integration and card showing **what grid energy cost you and what your exports earned** in Poland. It reads cumulative grid import/export counters from any inverter or meter, prices each 15-minute slot with PSE RCE (sale and dynamic tariffs) or fixed G11/G12/G12w/G13 zone prices plus distribution charges, and exposes today/month/year cost, revenue and balance sensors plus a Lovelace card. Tariff data for Polish sellers and DSOs is bundled where known (`tariffs/<year>.json`, flagged as unverified) and asked for in the config flow otherwise. Contributions of verified tariff data are welcome.
+Home Assistant integration and card showing **what grid energy cost you and what your exports earned** in Poland. It reads cumulative grid import/export counters from any inverter or meter, prices each 15-minute slot with PSE RCE (sale and dynamic tariffs) or fixed G11/G12/G12w/G13 zone prices plus distribution charges, and exposes today/month/year cost, revenue and balance sensors plus a Lovelace card. Past days can be recalculated from the recorder history (this month, this year or all of it) in the integration options. Tariff data for Polish sellers and DSOs is bundled where known (`tariffs/<year>.json`, flagged as unverified) and asked for in the config flow otherwise. Contributions of verified tariff data are welcome.
 
 License: MIT.

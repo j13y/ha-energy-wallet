@@ -73,6 +73,13 @@
   "options": {
     "step": {
       "init": {
+        "title": "Energy Wallet",
+        "menu_options": {
+          "settings": "Meters, tariff and prices",
+          "recalculate": "Recalculate past days"
+        }
+      },
+      "settings": {
         "title": "Meters and tariff",
         "data": {
           "import_entity": "Energy bought (grid import)",
@@ -124,11 +131,27 @@
           "excise": "Akcyza per kWh, added to the energy price before VAT (0.005 PLN/kWh).",
           "deposit_multiplier": "Factor applied to the value of exported energy, if your settlement uses one."
         }
+      },
+      "recalculate": {
+        "title": "Recalculate past days",
+        "description": "Rebuilds past days up to yesterday from Home Assistant history, using the current tariff and prices and historical RCE from PSE. Days still in the recorder's state history are counted every 15 minutes, as live; older days come from hourly statistics, so export revenue there is slightly lower (about 4-5%). Days already counted live but no longer in the state history are kept. RCE is available from 14 June 2024; export before that stays unpriced. Lifetime totals change by the difference, so the total sensors jump once.",
+        "data": {
+          "scope": "Range"
+        }
       }
     },
     "error": {
       "same_entity": "Import and export must be different sensors.",
       "invalid_hours": "Use ranges like 13-15,22-6."
+    },
+    "progress": {
+      "recalculating": "Recalculating from history and fetching RCE prices from PSE. This can take a few minutes for the whole history."
+    },
+    "abort": {
+      "recalculated": "Recalculated {days} days from {start} ({hourly_days} from hourly statistics). Unpriced energy: {unpriced_kwh} kWh.",
+      "recalculate_failed": "Recalculation failed, see the Home Assistant log.",
+      "not_loaded": "The integration is not loaded.",
+      "no_recorder": "Recalculation needs the recorder integration."
     }
   },
   "selector": {
@@ -171,6 +194,13 @@
       "options": {
         "rce": "RCE (15 min / hourly)",
         "rcem": "RCEm (monthly)"
+      }
+    },
+    "recalc_scope": {
+      "options": {
+        "month": "This month",
+        "year": "This year",
+        "all": "All history"
       }
     }
   },

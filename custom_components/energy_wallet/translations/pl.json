@@ -73,6 +73,13 @@
   "options": {
     "step": {
       "init": {
+        "title": "Energy Wallet",
+        "menu_options": {
+          "settings": "Liczniki, taryfa i ceny",
+          "recalculate": "Przelicz wstecz"
+        }
+      },
+      "settings": {
         "title": "Liczniki i taryfa",
         "data": {
           "import_entity": "Energia kupiona (pobór z sieci)",
@@ -124,11 +131,27 @@
           "excise": "Akcyza za kWh, doliczana do ceny energii przed VAT (0,005 zł/kWh).",
           "deposit_multiplier": "Współczynnik dla wartości energii oddanej, jeśli Twoje rozliczenie go stosuje."
         }
+      },
+      "recalculate": {
+        "title": "Przelicz wstecz",
+        "description": "Przelicza minione dni (do wczoraj) z historii Home Assistanta według obecnej taryfy i cen oraz historycznych RCE z PSE. Dni, które są jeszcze w szczegółowej historii rekordera, liczone są co 15 minut, jak na bieżąco; starsze ze statystyk godzinowych, więc przychód ze sprzedaży wychodzi w nich nieco niższy (ok. 4-5%). Dni policzone już na bieżąco, których nie ma w szczegółowej historii, zostają bez zmian. RCE jest dostępne od 14 czerwca 2024; wcześniejsza sprzedaż zostaje niewyceniona. Sumy od początku zmieniają się o różnicę, więc sensory „total” jednorazowo skoczą.",
+        "data": {
+          "scope": "Zakres"
+        }
       }
     },
     "error": {
       "same_entity": "Pobór i oddanie muszą być różnymi sensorami.",
       "invalid_hours": "Użyj zakresów w formacie 13-15,22-6."
+    },
+    "progress": {
+      "recalculating": "Przeliczanie z historii i pobieranie cen RCE z PSE. Dla całej historii może to potrwać kilka minut."
+    },
+    "abort": {
+      "recalculated": "Przeliczono {days} dni od {start} (w tym {hourly_days} ze statystyk godzinowych). Energia bez ceny: {unpriced_kwh} kWh.",
+      "recalculate_failed": "Przeliczanie nie powiodło się, szczegóły w logu Home Assistanta.",
+      "not_loaded": "Integracja nie jest załadowana.",
+      "no_recorder": "Przeliczanie wymaga integracji recorder."
     }
   },
   "selector": {
@@ -171,6 +194,13 @@
       "options": {
         "rce": "RCE (15 min / godzinowe)",
         "rcem": "RCEm (miesięczne)"
+      }
+    },
+    "recalc_scope": {
+      "options": {
+        "month": "Ten miesiąc",
+        "year": "Ten rok",
+        "all": "Cała historia"
       }
     }
   },

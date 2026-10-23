@@ -1,13 +1,14 @@
 """End-to-end tests inside a real Home Assistant instance."""
 
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
@@ -203,7 +204,9 @@ async def test_options_flow_resets_prices_on_tariff_change(hass: HomeAssistant, 
     await hass.async_block_till_done()
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["step_id"] == "init"
+    assert result["type"] is FlowResultType.MENU
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "settings"})
+    assert result["step_id"] == "settings"
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"import_entity": IMP, "export_entity": EXP, "seller": "tauron", "tariff_group": "G11", "dynamic": True,
@@ -236,6 +239,7 @@ async def test_options_flow_g12_to_g13_takes_zone_flags_from_catalog(hass: HomeA
     await hass.async_block_till_done()
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "settings"})
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"import_entity": IMP, "export_entity": EXP, "seller": "tauron", "tariff_group": "G13", "dynamic": False,
@@ -264,3 +268,74 @@ async def test_card_registered_when_frontend_loads_later(hass: HomeAssistant, se
     hass.bus.async_fire(EVENT_COMPONENT_LOADED, {"component": "frontend"})
     await hass.async_block_till_done()
     assert hass.data[DATA_EXTRA_MODULE_URL].urls == {"/energy_wallet/energy-wallet-card.js?v=0.1.2"}
+
+
+class FakeRecorder:
+    keep_days = 10
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def async_add_executor_job(self, target, *args):
+        return await self.hass.async_add_executor_job(target, *args)
+
+
+async def test_recalculate_month_from_history(
+    hass: HomeAssistant, setup_states, aioclient_mock, freezer: FrozenDateTimeFactory
+) -> None:
+    freezer.move_to("2026-10-23T10:00:00+00:00")
+    values = []
+    for day in range(1, 23):
+        values += rce_payload(f"2026-10-{day:02d}", 400.0)["value"]
+    aioclient_mock.get(PSE_RCE_URL, json={"value": values})
+    hass.config.components.add("recorder")
+    entry = MockConfigEntry(domain=DOMAIN, data=BASE, title="Energy Wallet")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    def fake_statistics(hass, start, end, ids, period, units, types):
+        # 1 kWh bought and 0.5 kWh sold every hour.
+        hours = int((end - start).total_seconds() // 3600)
+        return {
+            entity_id: [{"start": (start + timedelta(hours=h)).timestamp(), "change": 1.0 if entity_id == IMP else 0.5}
+                        for h in range(hours)]
+            for entity_id in ids
+        }
+
+    def fake_states(hass, start, end, entity_id):
+        # 2 kWh each way at noon local; the reading at midnight is the baseline.
+        n = (start - datetime(2026, 10, 13, 22, tzinfo=start.tzinfo)).days
+        return {entity_id: [
+            State(entity_id, str(2 * n), ATTRS, last_updated=start),
+            State(entity_id, str(2 * n + 2), ATTRS, last_updated=start + timedelta(hours=12)),
+        ]}
+
+    with (
+        patch("custom_components.energy_wallet.manager.get_instance", return_value=FakeRecorder(hass)),
+        patch("custom_components.energy_wallet.manager.statistics_during_period", fake_statistics),
+        patch("custom_components.energy_wallet.manager.state_changes_during_period", fake_states),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "recalculate"})
+        assert result["step_id"] == "recalculate"
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"scope": "month"})
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+        await hass.async_block_till_done()
+        result = await hass.config_entries.options.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "recalculated"
+    # Default recorder keeps 10 days: 1-13 October from hourly statistics, 14-22 from states.
+    assert result["description_placeholders"] == {
+        "start": "2026-10-01", "days": "22", "hourly_days": "13", "unpriced_kwh": "0.0"
+    }
+
+    manager = entry.runtime_data
+    buy = manager.prices.buy_price(dt_util.now(), None)
+    imp_kwh = 13 * 24 * 1.0 + 9 * 2.0
+    exp_kwh = 13 * 24 * 0.5 + 9 * 2.0
+    assert float(value(hass, entry, "purchase_cost_month").state) == pytest.approx(imp_kwh * buy, abs=0.01)
+    assert float(value(hass, entry, "sale_revenue_month").state) == pytest.approx(exp_kwh * 0.4, abs=0.01)
+    assert float(value(hass, entry, "purchase_cost_today").state) == 0
+    assert manager.wallet.totals["imp"] == pytest.approx(imp_kwh)

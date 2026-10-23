@@ -19,6 +19,8 @@ PSE_RCE_URL = "https://api.raporty.pse.pl/api/rce-pln"
 PSE_SELECT = "dtime,period,rce_pln,business_date"
 PAGE_SIZE = 500
 MAX_PAGES = 10
+# PSE publishes RCE in this feed since SDAC go-live; earlier days have no price.
+RCE_FIRST_DAY = date(2024, 6, 14)
 
 
 def _dtime_sort_key(dtime: str) -> str:
@@ -94,13 +96,14 @@ class PriceTable:
         return len(self._periods)
 
 
-async def fetch_rce(session: aiohttp.ClientSession, since: date) -> list[dict[str, Any]]:
-    """Fetch raw RCE records for ``since`` and later days, following paging."""
-    params: dict[str, Any] | None = {
-        "$select": PSE_SELECT,
-        "$filter": f"business_date ge '{since.isoformat()}'",
-        "$first": PAGE_SIZE,
-    }
+async def fetch_rce(
+    session: aiohttp.ClientSession, since: date, until: date | None = None, page_size: int = PAGE_SIZE
+) -> list[dict[str, Any]]:
+    """Fetch raw RCE records for ``since`` and later days (up to ``until``), following paging."""
+    flt = f"business_date ge '{since.isoformat()}'"
+    if until is not None:
+        flt += f" and business_date le '{until.isoformat()}'"
+    params: dict[str, Any] | None = {"$select": PSE_SELECT, "$filter": flt, "$first": page_size}
     url: str | None = PSE_RCE_URL
     records: list[dict[str, Any]] = []
     for _ in range(MAX_PAGES):

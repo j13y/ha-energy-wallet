@@ -41,6 +41,8 @@ class Wallet:
         self.totals: dict[str, float] = data.get("totals", {"cost": 0.0, "rev": 0.0, "imp": 0.0, "exp": 0.0})
         self.rce_daily_mean: dict[str, float] = data.get("rce_daily_mean", {})
         self.rcem_override: dict[str, float] = data.get("rcem_override", {})
+        # First day counted live; stores from before it was kept start with their first day.
+        self.live_since: str | None = data.get("live_since") or min(self.days, default=None)
         self.retention_days = retention_days
 
     def as_dict(self) -> dict[str, Any]:
@@ -51,6 +53,7 @@ class Wallet:
             "totals": self.totals,
             "rce_daily_mean": self.rce_daily_mean,
             "rcem_override": self.rcem_override,
+            "live_since": self.live_since,
         }
 
     def ingest_reading(
@@ -128,6 +131,21 @@ class Wallet:
             if slot["imp"] <= 0 and slot["exp"] <= 0:
                 del self.pending[key]
         return changed
+
+    def replace_days(self, days: dict[str, dict[str, float]], keys: set[str]) -> None:
+        """Swap the given days for recalculated ones, keeping lifetime totals consistent."""
+        for key in keys:
+            old = self.days.pop(key, None) or {}
+            new = days.get(key)
+            for field in ("imp", "exp", "cost", "rev"):
+                self.totals[field] = (
+                    self.totals.get(field, 0.0) - old.get(field, 0.0) + (new or {}).get(field, 0.0)
+                )
+            if new is not None:
+                self.days[key] = new
+        # Queued energy of a replaced day is already part of the recalculated one.
+        for slot in [k for k, v in self.pending.items() if v["day"] in keys]:
+            del self.pending[slot]
 
     def record_rce_day(self, day_key: str, mean_rce: float) -> None:
         self.rce_daily_mean[day_key] = mean_rce
